@@ -14,7 +14,6 @@
 #include <fstream>
 #include <streambuf>
 #include <unordered_map>
-#include <iterator>
 
 typedef struct sockaddr SA;
 typedef struct sockaddr_in SA_IN;

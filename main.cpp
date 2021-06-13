@@ -9,8 +9,6 @@ int main(void) {
     res.append("Hello world");
   });
   server.get("/brownie", [](const Request &req, Response &res) {
-    std::cout << "has cookie: " << req.query.has("cookie") << std::endl;
-    std::cout << "cookie: " << req.query.get("cookie") << std::endl;
     res.append_file("resources/brownie.txt");
   });
   server.listen(3333);
