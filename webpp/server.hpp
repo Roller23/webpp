@@ -7,11 +7,16 @@
 #include <unordered_map>
 #include <functional>
 
+typedef std::unordered_map<std::string, std::string> HeadersMap;
+typedef std::unordered_map<std::string, std::string> QueryMap;
+
+class WebServer;
+
 class Query {
   private:
-    const std::unordered_map<std::string, std::string> query;
+    const QueryMap query;
   public:
-    Query(const std::unordered_map<std::string, std::string> &_query) : query(_query) {}
+    Query(const QueryMap &_query) : query(_query) {}
     bool has(const std::string &key) const;
     std::string get(const std::string &key) const;
 };
@@ -19,10 +24,25 @@ class Query {
 class Request {
   public:
     Query query;
-    Request(const std::unordered_map<std::string, std::string> &_query) : query(_query) {}
+    Request(const QueryMap &_query) : query(_query) {}
 };
 
-typedef std::function<std::string(const Request)> RouteCallback;
+class Response {
+  friend class WebServer;
+  private:
+    std::string buffer = "";
+    HeadersMap headers;
+  public:
+    void append(const std::string &str);
+    void add_header(const std::string &key, const std::string &value);
+    void append_file(const std::string &path);
+    Response() {
+      headers["Content-Type"] = "text/html; charset=utf-8";
+      headers["Content-Length"] = "0";
+    }
+};
+
+typedef std::function<void(const Request &, Response &)> RouteCallback;
 
 class WebServer {
   private:
@@ -32,10 +52,9 @@ class WebServer {
     bool has_path(const std::string &path);
   public:
     void make_static(const std::string &path);
-    std::string get_file(const std::string &path);
-    void on(const std::string &method, const std::string &route, RouteCallback callback);
-    void get(const std::string &route, RouteCallback callback);
-    void post(const std::string &route, RouteCallback callback);
+    void on(const std::string &method, const std::string &route, const RouteCallback &callback);
+    void get(const std::string &route, const RouteCallback &callback);
+    void post(const std::string &route, const RouteCallback &callback);
     void listen(const uint16_t port);
 };
 

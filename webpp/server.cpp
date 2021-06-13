@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <fstream>
 #include <streambuf>
+#include <unordered_map>
+#include <iterator>
 
 typedef struct sockaddr SA;
 typedef struct sockaddr_in SA_IN;
@@ -33,17 +35,24 @@ static std::vector<std::string> tokenize(const std::string &str, char delim) {
   return out;
 }
 
-static std::string generate_ok_res(const std::string &content) {
+static std::string get_file(const std::string &path) {
+  std::ifstream file(path);
+  std::string file_str((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+  return file_str;
+}
+
+static std::string generate_ok_res(const std::string &content, const HeadersMap &headers) {
   std::string response = HTTP_200;
-  response += "\nContent-Type: text/html";
-  response += "\nContent-Length: " + std::to_string(content.size());
-  response += "\r\n\r\n";
+  for (const auto &it : headers) {
+    response += "\n" + it.first + ": " + it.second;
+  }
+  response += "\r\n\r\n"; // end headers
   response += content;
   return response;
 }
 
-static void write_ok_res(const std::string &content, int client) {
-  std::string response = generate_ok_res(content);
+static void write_ok_res(const std::string &content, const HeadersMap &headers, int client) {
+  std::string response = generate_ok_res(content, headers);
   const char *response_c = response.c_str();
   write(client, response_c, strlen(response_c));
   close(client);
@@ -59,29 +68,37 @@ bool Query::has(const std::string &key) const {
 }
 
 std::string Query::get(const std::string &key) const {
+  if (!has(key)) return "";
   return query.at(key);
 }
 
-void WebServer::on(const std::string &method, const std::string &route, RouteCallback callback) {
+void Response::append(const std::string &str) {
+  buffer += str;
+  headers["Content-Length"] = std::to_string(buffer.size());
+}
+
+void Response::add_header(const std::string &key, const std::string &value) {
+  headers[key] = value;
+}
+
+void Response::append_file(const std::string &path) {
+  append(get_file(path));
+}
+
+void WebServer::on(const std::string &method, const std::string &route, const RouteCallback &callback) {
   routes[method + " " + route] = callback;
 }
 
-void WebServer::get(const std::string &route, RouteCallback callback) {
+void WebServer::get(const std::string &route, const RouteCallback &callback) {
   return on("GET", route, callback);
 }
 
-void WebServer::post(const std::string &route, RouteCallback callback) {
+void WebServer::post(const std::string &route, const RouteCallback &callback) {
   return on("POST", route, callback);
 }
 
 void WebServer::make_static(const std::string &path) {
   static_paths.push_back(path);
-}
-
-std::string WebServer::get_file(const std::string &path) {
-  std::ifstream file(path);
-  std::string file_str((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-  return file_str;
 }
 
 bool WebServer::has_path(const std::string &path) {
@@ -123,7 +140,7 @@ void WebServer::listen(const uint16_t port) {
     bool has_query = components.size() == 2;
     bool static_response = false;
     const std::string &request_path = components[0];
-    std::unordered_map<std::string, std::string> req_query;
+    QueryMap req_query;
     if (has_query) {
       const std::string &query = components[1];
       const std::vector<std::string> &query_pairs = tokenize(query, '&');
@@ -133,18 +150,21 @@ void WebServer::listen(const uint16_t port) {
         req_query[pair_components[0]] = pair_components[1];
       }
     }
+    Response res;
     if (method == "GET") {
       const std::string &relative_path = path.substr(1);
       const std::string &parent_path = std::filesystem::path(relative_path).parent_path();
       if (has_path(parent_path)) {
-        write_ok_res(get_file(relative_path), client_fd);
+        res.append_file(relative_path);
+        write_ok_res(res.buffer, res.headers, client_fd);
         static_response = true;
       }
     }
     if (!static_response) {
       if (routes.count(request_path) != 0) {
         Request req(req_query);
-        write_ok_res(routes[request_path](req), client_fd);
+        routes[request_path](req, res);
+        write_ok_res(res.buffer, res.headers, client_fd);
       } else {
         write_404_res(client_fd);
       }
