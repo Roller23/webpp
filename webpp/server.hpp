@@ -7,7 +7,22 @@
 #include <unordered_map>
 #include <functional>
 
-typedef std::function<std::string()> RouteCallback;
+class Query {
+  private:
+    const std::unordered_map<std::string, std::string> query;
+  public:
+    Query(const std::unordered_map<std::string, std::string> &_query) : query(_query) {}
+    bool has(const std::string &key) const;
+    std::string get(const std::string &key) const;
+};
+
+class Request {
+  public:
+    Query query;
+    Request(const std::unordered_map<std::string, std::string> &_query) : query(_query) {}
+};
+
+typedef std::function<std::string(const Request)> RouteCallback;
 
 class WebServer {
   private:

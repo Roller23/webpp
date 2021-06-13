@@ -22,7 +22,7 @@ static int (*__listen)(int, int) = listen;
 #define HTTP_200 "HTTP/1.0 200 OK"
 #define HTTP_404 "HTTP/1.0 404 Not Found\r\n\r\n"
 
-static std::vector<std::string> tokenize(std::string &str, char delim) {
+static std::vector<std::string> tokenize(const std::string &str, char delim) {
   std::size_t start;
   std::size_t end = 0;
   std::vector<std::string> out;
@@ -52,6 +52,14 @@ static void write_ok_res(const std::string &content, int client) {
 static void write_404_res(int client) {
   write(client, HTTP_404, strlen(HTTP_404));
   close(client);
+}
+
+bool Query::has(const std::string &key) const {
+  return query.count(key) != 0;
+}
+
+std::string Query::get(const std::string &key) const {
+  return query.at(key);
 }
 
 void WebServer::on(const std::string &method, const std::string &route, RouteCallback callback) {
@@ -106,7 +114,25 @@ void WebServer::listen(const uint16_t port) {
     const std::string &method = request[0];
     const std::string &path = request[1];
     const std::string &full_request = method + " " + path;
+    const std::vector<std::string> &components = tokenize(full_request, '?');
+    if (components.size() > 2) {
+      // malformed request
+      write_404_res(client_fd);
+      continue;
+    }
+    bool has_query = components.size() == 2;
     bool static_response = false;
+    const std::string &request_path = components[0];
+    std::unordered_map<std::string, std::string> req_query;
+    if (has_query) {
+      const std::string &query = components[1];
+      const std::vector<std::string> &query_pairs = tokenize(query, '&');
+      for (auto &pair : query_pairs) {
+        const std::vector<std::string> pair_components = tokenize(pair, '=');
+        if (pair_components.size() != 2) continue;
+        req_query[pair_components[0]] = pair_components[1];
+      }
+    }
     if (method == "GET") {
       const std::string &relative_path = path.substr(1);
       const std::string &parent_path = std::filesystem::path(relative_path).parent_path();
@@ -116,8 +142,9 @@ void WebServer::listen(const uint16_t port) {
       }
     }
     if (!static_response) {
-      if (routes.count(full_request) != 0) {
-        write_ok_res(routes[full_request](), client_fd);
+      if (routes.count(request_path) != 0) {
+        Request req(req_query);
+        write_ok_res(routes[request_path](req), client_fd);
       } else {
         write_404_res(client_fd);
       }
